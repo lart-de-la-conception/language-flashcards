@@ -1,0 +1,267 @@
+'use client';
+import axios from "axios";
+import Link from "next/link";
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { HiSpeakerWave, HiPencil } from "react-icons/hi2";
+
+function Flashcard({ card, onPrev, onNext }: {
+  card: { text: string; translation: string; meaning: string };
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const [flipped, setFlipped] = React.useState(false);
+
+  const flip = () => setFlipped(f => !f);
+
+  React.useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const tag = document.activeElement?.tagName;
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement as HTMLElement)?.isContentEditable;
+      if (isInput) return;
+      if (e.key === 'ArrowLeft') {
+        setFlipped(false);
+        onPrev();
+      } else if (e.key === 'ArrowRight') {
+        setFlipped(false);
+        onNext();
+      } else if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        flip();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onPrev, onNext]);
+
+  React.useEffect(() => { setFlipped(false); }, [card]);
+
+  return (
+    <div className="flex flex-col items-center mb-12">
+      <div className="w-80 h-48 [perspective:1000px]">
+        <div
+          className={`relative w-full h-full duration-500 [transform-style:preserve-3d] ${flipped ? '[transform:rotateX(180deg)]' : ''}`}
+          onClick={flip}
+          title="Click to flip"
+          tabIndex={0}
+          role="button"
+          aria-pressed={flipped}
+          style={{ cursor: 'pointer' }}
+        >
+          {/* Front */}
+          <div className="absolute w-full h-full flex items-center justify-center text-2xl font-light text-gray-900 bg-white border border-[var(--border)] rounded-2xl shadow-sm select-none [backface-visibility:hidden]">
+            {card.text}
+          </div>
+          {/* Back */}
+          <div className="absolute w-full h-full flex items-center justify-center text-2xl font-light text-gray-900 bg-white border border-[var(--border)] rounded-2xl shadow-sm select-none [transform:rotateX(180deg)] [backface-visibility:hidden]">
+            {card.translation}
+          </div>
+        </div>
+      </div>
+      <div className="flex gap-4 mt-4">
+        <button
+          className="bg-white border border-[var(--border)] px-4 py-1 rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900"
+          onClick={() => { setFlipped(false); onPrev(); }}
+        >
+          Previous
+        </button>
+        <button
+          className="bg-white border border-[var(--border)] px-4 py-1 rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900"
+          onClick={() => { setFlipped(false); onNext(); }}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface EditWordModalProps {
+  open: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  form: { text: string; meaning: string; translation: string };
+  setForm: React.Dispatch<React.SetStateAction<{ text: string; meaning: string; translation: string }>>;
+}
+
+function EditWordModal({ open, onClose, onSave, form, setForm }: EditWordModalProps) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent">
+      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md relative">
+        <h2 className="text-xl font-semibold mb-6 text-gray-900">Edit Word</h2>
+        <form
+          onSubmit={e => {
+            e.preventDefault();
+            onSave();
+          }}
+        >
+          <div className="mb-4">
+            <label className="block text-gray-700 mb-1" htmlFor="edit-text">Word</label>
+            <input
+              id="edit-text"
+              name="text"
+              value={form.text}
+              onChange={e => setForm((f: typeof form) => ({ ...f, text: e.target.value }))}
+              className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--border)]"
+              required
+            />
+          </div>
+          <div className="mb-4">
+            <label className="block text-gray-700 mb-1" htmlFor="edit-translation">Translation</label>
+            <input
+              id="edit-translation"
+              name="translation"
+              value={form.translation}
+              onChange={e => setForm((f: typeof form) => ({ ...f, translation: e.target.value }))}
+              className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--border)]"
+              required
+            />
+          </div>
+          <div className="mb-6">
+            <label className="block text-gray-700 mb-1" htmlFor="edit-meaning">Meaning <span className="text-gray-400">(optional)</span></label>
+            <input
+              id="edit-meaning"
+              name="meaning"
+              value={form.meaning}
+              onChange={e => setForm((f: typeof form) => ({ ...f, meaning: e.target.value }))}
+              className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[var(--border)]"
+            />
+          </div>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export default function DeckPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = React.use(params);
+  const searchParams = useSearchParams();
+  const deckNameParam = searchParams.get('name');
+
+  const [deck, setDeck] = useState<{ name: string; words: any[] }>({ name: '', words: [] });
+  const [cardIndex, setCardIndex] = useState(0);
+  const [editingWordId, setEditingWordId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ text: "", meaning: "", translation: "" });
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    axios.get(`http://localhost:8000/api/decks/${id}`)
+      .then(res => setDeck(res.data))
+      .catch(err => console.error("Failed to fetch deck", err));
+  }, [id]);
+
+  const card = deck.words[cardIndex] || { text: '', translation: '', meaning: '' };
+  const goPrev = () => setCardIndex(i => (deck.words.length ? (i > 0 ? i - 1 : deck.words.length - 1) : 0));
+  const goNext = () => setCardIndex(i => (deck.words.length ? (i < deck.words.length - 1 ? i + 1 : 0) : 0));
+
+  // Start editing
+  const handleEditClick = (word: any) => {
+    setEditingWordId(word.id);
+    setEditForm({
+      text: word.text,
+      meaning: word.meaning || "",
+      translation: word.translation,
+    });
+    setModalOpen(true);
+  };
+
+  // Save the edit
+  const handleEditSave = async () => {
+    if (editingWordId == null) return;
+    try {
+      const res = await axios.put(
+        `http://localhost:8000/api/words/${editingWordId}`,
+        editForm
+      );
+      setDeck((prev) => ({
+        ...prev,
+        words: prev.words.map((w) => (w.id === editingWordId ? res.data : w)),
+      }));
+      setEditingWordId(null);
+      setModalOpen(false);
+    } catch (err) {
+      alert("Failed to update word");
+    }
+  };
+
+  // Cancel editing
+  const handleEditCancel = () => {
+    setEditingWordId(null);
+    setModalOpen(false);
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto py-20 px-6">
+      <Link href="/" className="text-gray-400 hover:text-gray-900 text-sm mb-8 inline-block">&larr; Back to Decks</Link>
+      <h1 className="text-3xl font-light mb-8 text-gray-900 tracking-tight" style={{letterSpacing: '0.01em'}}>{deckNameParam || deck.name}</h1>
+      {/* Flashcard view */}
+      {deck.words.length > 0 && <Flashcard card={card} onPrev={goPrev} onNext={goNext} />}
+      <EditWordModal
+        open={modalOpen}
+        onClose={handleEditCancel}
+        onSave={handleEditSave}
+        form={editForm}
+        setForm={setEditForm}
+      />
+      <div className="mb-10">
+        <h2 className="text-lg font-light mb-2 text-gray-900">Words in this deck</h2>
+        <div className="flex flex-col gap-3 mb-4">
+          {deck.words.map((word, idx) => (
+            <div
+              key={idx}
+              className="flex items-center justify-between bg-gray-50 border border-[var(--border)] rounded-xl px-6 py-4 text-base text-gray-900 font-light hover:bg-gray-100 transition group"
+            >
+              <div className="flex-1">{word.text}</div>
+              <div className="mx-8 h-6 w-px bg-gray-300" />
+              <div className="flex-1">{word.translation}</div>
+              <div className="flex gap-3 ml-6 opacity-60 group-hover:opacity-100 transition-opacity">
+                <button title="Hear"><HiSpeakerWave /></button>
+                <button title="Edit" onClick={() => handleEditClick(word)}><HiPencil /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <h2 className="text-lg font-light mt-12 mb-2 text-gray-900">Add words</h2>
+        <form className="flex gap-2 mb-6">
+          <input
+            className="border border-[var(--border)] rounded-xl px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[var(--border)] bg-white text-gray-900 placeholder-gray-400 transition font-light"
+            placeholder="Add a single word or phrase..."
+            type="text"
+          />
+          <button
+            className="bg-white border border-[var(--border)] px-4 py-2 rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900"
+            type="submit"
+          >
+            Add
+          </button>
+        </form>
+        <div className="mb-2 text-gray-900 font-light">Bulk upload</div>
+        <textarea
+          className="border border-[var(--border)] rounded-xl px-3 py-2 w-full min-h-[80px] focus:outline-none focus:ring-2 focus:ring-[var(--border)] bg-white text-gray-900 placeholder-gray-400 transition font-light mb-2"
+          placeholder="Paste words or phrases here, separated by commas or new lines..."
+        />
+        <button
+          className="bg-white border border-[var(--border)] px-4 py-2 rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900 mt-2"
+        >
+          Upload
+        </button>
+      </div>
+    </div>
+  );
+} 
