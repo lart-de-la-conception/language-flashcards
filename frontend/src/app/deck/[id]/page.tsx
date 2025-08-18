@@ -3,7 +3,7 @@ import axios from "axios";
 import Link from "next/link";
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { HiSpeakerWave, HiPencil } from "react-icons/hi2";
+import { HiSpeakerWave, HiPencil, HiArrowsRightLeft, HiArrowsUpDown } from "react-icons/hi2";
 
 function Flashcard({ card, onPrev, onNext }: {
   card: { text: string; translation: string; meaning: string };
@@ -154,11 +154,22 @@ export default function DeckPage({ params }: { params: Promise<{ id: string }> }
   const searchParams = useSearchParams();
   const deckNameParam = searchParams.get('name');
 
-  const [deck, setDeck] = useState<{ name: string; words: any[] }>({ name: '', words: [] });
+  const [deck, setDeck] = useState<{ name: string; words: any[]; target_language?: string; id?: number }>({ name: '', words: [] });
   const [cardIndex, setCardIndex] = useState(0);
   const [editingWordId, setEditingWordId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ text: "", meaning: "", translation: "" });
   const [modalOpen, setModalOpen] = useState(false);
+  const [newWord, setNewWord] = useState("");
+
+  // State for manual add fields
+  const [manualForeign, setManualForeign] = useState("");
+  const [manualTranslation, setManualTranslation] = useState("");
+
+  // State for manual add modal
+  const [manualModalOpen, setManualModalOpen] = useState(false);
+
+  // State to control manual add input order (true = foreign first, false = translation first)
+  const [manualForeignFirst, setManualForeignFirst] = useState(true);
 
   useEffect(() => {
     axios.get(`http://localhost:8000/api/decks/${id}`)
@@ -206,6 +217,121 @@ export default function DeckPage({ params }: { params: Promise<{ id: string }> }
     setModalOpen(false);
   };
 
+  const translateWord = async (word: string, target_language: string) => {
+    const res = await axios.post("http://localhost:8000/api/words/translate", {
+      text: word,
+      target_language: target_language,
+    });
+    console.log(res.data);
+  };
+
+  // Auto-translate and add word to deck
+  const handleAddWord = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWord.trim() || !deck.target_language) return;
+
+    // Call backend to translate the word
+    const res = await axios.post("http://localhost:8000/api/words/translate", {
+      text: newWord,
+      target_language: deck.target_language,
+      deck_id: deck.id
+    });
+
+    const { text, translation, detected_language } = res.data;
+
+    // Ensure the foreign language word always appears first
+    let wordData;
+    if (detected_language === deck.target_language) {
+      // User typed in the target language (foreign word)
+      wordData = {
+        text,                // foreign word
+        translation,         // English (or user's base language)
+        meaning: "",
+        detected_language
+      };
+    } else {
+      // User typed in English (or another language)
+      wordData = {
+        text: translation,   // foreign word (translated)
+        translation: text,   // English (original input)
+        meaning: "",
+        detected_language
+      };
+    }
+
+    // Save the new word to the backend
+    const wordRes = await axios.post("http://localhost:8000/api/words", {
+      ...wordData,
+      deck_id: deck.id
+    });
+
+    // Add the saved word (with real ID) to the deck's word list in state
+    setDeck(prev => ({
+      ...prev,
+      words: [
+        ...prev.words,
+        wordRes.data
+      ]
+    }));
+
+    setNewWord("");
+  };
+
+  // Handler for manual add form
+  const handleManualAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualForeign.trim() || !manualTranslation.trim() || !deck.id) return;
+
+    // Save the new word to the backend (manual entry)
+    const wordRes = await axios.post("http://localhost:8000/api/words", {
+      text: manualForeign,
+      translation: manualTranslation,
+      meaning: "",
+      deck_id: deck.id
+    });
+
+    // Add the saved word to the deck's word list in state
+    setDeck(prev => ({
+      ...prev,
+      words: [
+        ...prev.words,
+        wordRes.data
+      ]
+    }));
+
+    setManualForeign("");
+    setManualTranslation("");
+  };
+
+  // Delete a word from the deck
+  const handleDeleteWord = async (wordId: number) => {
+    try {
+      await axios.delete(`http://localhost:8000/api/words/${wordId}`);
+      setDeck(prev => ({
+        ...prev,
+        words: prev.words.filter((w: any) => w.id !== wordId)
+      }));
+    } catch (err) {
+      alert("Failed to delete word");
+    }
+  };
+
+  // Play pronunciation for the foreign word using backend ElevenLabs endpoint
+  const playPronunciation = async (text: string) => {
+    try {
+      const response = await axios.post(
+        "http://localhost:8000/api/pronounce",
+        { text },
+        { responseType: "blob" }
+      );
+      const audioUrl = URL.createObjectURL(response.data);
+      const audio = new Audio(audioUrl);
+      audio.play();
+    } catch (e) {
+      alert("Unable to play pronunciation");
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto py-20 px-6">
       <Link href="/" className="text-gray-400 hover:text-gray-900 text-sm mb-8 inline-block">&larr; Back to Decks</Link>
@@ -220,38 +346,134 @@ export default function DeckPage({ params }: { params: Promise<{ id: string }> }
         setForm={setEditForm}
       />
       <div className="mb-10">
-        <h2 className="text-lg font-light mb-2 text-gray-900">Words in this deck</h2>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-lg font-light text-gray-900">Words in this deck</h2>
+          <button
+            className="px-4 py-2 bg-white border border-[var(--border)] rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900"
+            onClick={() => setManualModalOpen(true)}
+          >
+            + Manual Add
+          </button>
+        </div>
         <div className="flex flex-col gap-3 mb-4">
           {deck.words.map((word, idx) => (
             <div
-              key={idx}
+              key={word.id || idx}
               className="flex items-center justify-between bg-gray-50 border border-[var(--border)] rounded-xl px-6 py-4 text-base text-gray-900 font-light hover:bg-gray-100 transition group"
             >
-              <div className="flex-1">{word.text}</div>
-              <div className="mx-8 h-6 w-px bg-gray-300" />
               <div className="flex-1">{word.translation}</div>
+              <div className="mx-8 h-6 w-px bg-gray-300" />
+              <div className="flex-1">{word.text}</div>
               <div className="flex gap-3 ml-6 opacity-60 group-hover:opacity-100 transition-opacity">
-                <button title="Hear"><HiSpeakerWave /></button>
+                <button title="Hear" onClick={() => playPronunciation(word.text)}><HiSpeakerWave /></button>
                 <button title="Edit" onClick={() => handleEditClick(word)}><HiPencil /></button>
+                <button
+                  title="Delete"
+                  onClick={() => handleDeleteWord(word.id)}
+                  className="text-red-400 hover:text-red-600"
+                >
+                  ×
+                </button>
               </div>
             </div>
           ))}
         </div>
-        <h2 className="text-lg font-light mt-12 mb-2 text-gray-900">Add words</h2>
-        <form className="flex gap-2 mb-6">
+        {/* Add word form with auto-translate (Quick Add) */}
+        <form className="flex gap-2 mb-6" onSubmit={handleAddWord}>
           <input
             className="border border-[var(--border)] rounded-xl px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[var(--border)] bg-white text-gray-900 placeholder-gray-400 transition font-light"
-            placeholder="Add a single word or phrase..."
+            placeholder="Add a single word or phrase in either language..."
             type="text"
+            value={newWord}
+            onChange={e => setNewWord(e.target.value)}
           />
           <button
             className="bg-white border border-[var(--border)] px-4 py-2 rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900"
             type="submit"
           >
-            Add
+            Quick Add
           </button>
         </form>
-        <div className="mb-2 text-gray-900 font-light">Bulk upload</div>
+
+        {/* Manual Add modal */}
+        {manualModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent bg-opacity-30">
+            <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md relative">
+              <h2 className="text-xl font-semibold mb-6 text-gray-900">Manual Add</h2>
+              {/* Switch icon button to toggle input order, right-aligned */}
+              <div className="flex justify-end mb-4">
+                <button
+                  type="button"
+                  className="p-2 rounded-lg border border-[var(--border)] bg-white text-gray-900 font-light hover:bg-gray-50 transition-colors flex items-center justify-center"
+                  onClick={() => setManualForeignFirst(f => !f)}
+                >
+                  <HiArrowsUpDown className="w-5 h-5" />
+                </button>
+              </div>
+              <form
+                onSubmit={e => {
+                  handleManualAdd(e);
+                  setManualModalOpen(false);
+                }}
+              >
+                {/* Conditionally render input order based on manualForeignFirst */}
+                {manualForeignFirst ? (
+                  <>
+                    <input
+                      className="border border-[var(--border)] rounded-xl px-3 py-2 w-full mb-4"
+                      placeholder="Foreign word"
+                      type="text"
+                      value={manualForeign}
+                      onChange={e => setManualForeign(e.target.value)}
+                    />
+                    <input
+                      className="border border-[var(--border)] rounded-xl px-3 py-2 w-full mb-6"
+                      placeholder="Translation"
+                      type="text"
+                      value={manualTranslation}
+                      onChange={e => setManualTranslation(e.target.value)}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <input
+                      className="border border-[var(--border)] rounded-xl px-3 py-2 w-full mb-4"
+                      placeholder="Translation"
+                      type="text"
+                      value={manualTranslation}
+                      onChange={e => setManualTranslation(e.target.value)}
+                    />
+                    <input
+                      className="border border-[var(--border)] rounded-xl px-3 py-2 w-full mb-6"
+                      placeholder="Foreign word"
+                      type="text"
+                      value={manualForeign}
+                      onChange={e => setManualForeign(e.target.value)}
+                    />
+                  </>
+                )}
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700"
+                    onClick={() => setManualModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white"
+                    disabled={!manualForeign.trim() || !manualTranslation.trim()}
+                  >
+                    Add
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+        {/* Bulk upload featuer would be better implement when I intergrate OpenAI API*/}
+        {/* <div className="mb-2 text-gray-900 font-light">Bulk upload</div>
         <textarea
           className="border border-[var(--border)] rounded-xl px-3 py-2 w-full min-h-[80px] focus:outline-none focus:ring-2 focus:ring-[var(--border)] bg-white text-gray-900 placeholder-gray-400 transition font-light mb-2"
           placeholder="Paste words or phrases here, separated by commas or new lines..."
@@ -260,7 +482,7 @@ export default function DeckPage({ params }: { params: Promise<{ id: string }> }
           className="bg-white border border-[var(--border)] px-4 py-2 rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900 mt-2"
         >
           Upload
-        </button>
+        </button> */}
       </div>
     </div>
   );

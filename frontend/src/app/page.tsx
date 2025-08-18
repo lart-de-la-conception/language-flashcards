@@ -15,6 +15,7 @@ interface Deck {
   id: number;
   name: string;
   words: Word[];
+  target_language: string;
 }
 
 function ConfirmDeleteDialog({ open, onConfirm, onCancel, deckName }: { open: boolean; onConfirm: () => void; onCancel: () => void; deckName: string }) {
@@ -36,9 +37,10 @@ function ConfirmDeleteDialog({ open, onConfirm, onCancel, deckName }: { open: bo
 export default function Home() {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [newDeckName, setNewDeckName] = useState("");
-  const [addingToDeck, setAddingToDeck] = useState<number | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState("");
   const [newWord, setNewWord] = useState("");
   const [deckToDelete, setDeckToDelete] = useState<Deck | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   // Fetch decks from backend on mount
   useEffect(() => {
@@ -48,27 +50,19 @@ export default function Home() {
   }, []);
 
   const handleCreateDeck = async () => {
-    if (!newDeckName.trim()) return;
+    if (!newDeckName.trim() || !selectedLanguage) {
+      alert("Please enter a deck title and select a language.");
+      return;
+    }
     try {
-      const res = await axios.post("http://localhost:8000/api/decks", { name: newDeckName });
+      const res = await axios.post("http://localhost:8000/api/decks", { name: newDeckName, target_language: selectedLanguage });
       setDecks([...decks, res.data]);
       setNewDeckName("");
+      setSelectedLanguage("");
     } catch (err) {
+      alert("Failed to create deck. Please make sure you selected a language.");
       console.error("Failed to create deck", err);
     }
-  };
-
-  const handleAddWord = (deckId: number) => {
-    if (!newWord.trim()) return;
-    setDecks(
-      decks.map((deck) =>
-        deck.id === deckId
-          ? { ...deck, words: [...deck.words, { id: 0, text: newWord, meaning: "", translation: "" }] } // Assuming new words are added with default values for now
-          : deck
-      )
-    );
-    setNewWord("");
-    setAddingToDeck(null);
   };
 
   const handleDeleteDeck = async (deckId: number) => {
@@ -84,21 +78,65 @@ export default function Home() {
   return (
     <div className="max-w-2xl mx-auto py-20 px-6">
       <h1 className="text-4xl font-light mb-10 text-gray-900 tracking-tight" style={{letterSpacing: '0.01em'}}>Your Flashcard Decks</h1>
-      <div className="mb-12 flex gap-3">
-        <input
-          className="border border-[var(--border)] rounded-xl px-5 py-3 w-full focus:outline-none focus:ring-2 focus:ring-[var(--border)] bg-white text-gray-900 placeholder-gray-400 transition font-light"
-          placeholder="Create a new deck..."
-          value={newDeckName}
-          onChange={(e) => setNewDeckName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleCreateDeck()}
-        />
+      <div className="flex justify-end mb-6">
         <button
-          className="bg-white border border-[var(--border)] px-5 py-3 rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900"
-          onClick={handleCreateDeck}
+          className="bg-white border border-[var(--border)] px-6 py-3 rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900"
+          onClick={() => setCreateModalOpen(true)}
         >
-          Create
+          + Create Deck
         </button>
       </div>
+
+      {createModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent bg-opacity-30">
+          <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md relative">
+            <h2 className="text-xl font-semibold mb-6 text-gray-900">Create a New Deck</h2>
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                handleCreateDeck();
+                setCreateModalOpen(false);
+              }}
+            >
+              <input
+                className="border border-[var(--border)] rounded-xl px-5 py-3 w-full mb-4"
+                placeholder="Deck title..."
+                value={newDeckName}
+                onChange={e => setNewDeckName(e.target.value)}
+              />
+              <select
+                className="border border-[var(--border)] rounded-xl px-5 py-3 w-full mb-6"
+                value={selectedLanguage}
+                onChange={e => setSelectedLanguage(e.target.value)}
+              >
+                <option value="" disabled>Select language you are learning</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="it">Italian</option>
+                <option value="pt">Portuguese</option>
+                <option value="en">English</option>
+              </select>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700"
+                  onClick={() => setCreateModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white"
+                  disabled={!newDeckName.trim() || !selectedLanguage}
+                >
+                  Create
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       <ul className="space-y-8">
         {decks.map((deck) => (
           <li key={deck.id} className="group bg-white border border-[var(--border)] rounded-2xl p-6 flex flex-col gap-3 relative">
@@ -116,41 +154,12 @@ export default function Home() {
               >
                 {deck.name}
               </a>
-              <button
-                className="text-base font-light underline hover:text-gray-700"
-                onClick={() => setAddingToDeck(deck.id)}
-              >
-                Quick add
-              </button>
             </div>
             <div className="flex flex-wrap gap-2">
               {deck.words.map((word, idx) => (
                 <span key={word.id} className="bg-gray-50 px-3 py-1 rounded-lg text-base text-gray-700 font-light border border-[var(--border)]">{word.text}</span>
               ))}
             </div>
-            {addingToDeck === deck.id && (
-              <div className="flex gap-2 mt-2">
-                <input
-                  className="border border-[var(--border)] rounded-xl px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[var(--border)] bg-white text-gray-900 placeholder-gray-400 transition font-light"
-                  placeholder="Add a word or phrase..."
-                  value={newWord}
-                  onChange={(e) => setNewWord(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddWord(deck.id)}
-                />
-                <button
-                  className="bg-white border border-[var(--border)] px-4 py-2 rounded-xl font-light hover:bg-gray-50 transition-colors text-gray-900"
-                  onClick={() => handleAddWord(deck.id)}
-                >
-                  Add
-                </button>
-                <button
-                  className="text-gray-400 hover:text-gray-700 px-2 font-light"
-                  onClick={() => setAddingToDeck(null)}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
           </li>
         ))}
       </ul>

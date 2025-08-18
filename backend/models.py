@@ -35,6 +35,7 @@ class Deck(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
     owner_id = Column(Integer, ForeignKey('users.id'))
+    target_language = Column(String, nullable=False)  # e.g., 'es', 'fr', etc.
 
     owner = relationship('User', back_populates='decks')
     words = relationship('Word', secondary=deck_word_association, back_populates='decks')
@@ -47,7 +48,7 @@ class Word(Base):
     __tablename__ = 'words'
     id = Column(Integer, primary_key=True, index=True)
     text = Column(String, index=True, nullable=False)
-    meaning = Column(String, nullable=False)
+    meaning = Column(String, nullable=True)
     translation = Column(String, nullable=False)
     owner_id = Column(Integer, ForeignKey('users.id'))
 
